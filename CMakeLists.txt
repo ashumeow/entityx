@@ -1,8 +1,13 @@
+project(EntityX)
 cmake_minimum_required(VERSION 2.8)
 
-set(ENTITYX_MAJOR_VERSION 0)
-set(ENTITYX_MINOR_VERSION 8)
-set(ENTITYX_PATCH_VERSION 1)
+if(NOT DEFINED CMAKE_MACOSX_RPATH)
+  set(CMAKE_MACOSX_RPATH 0)
+endif()
+
+set(ENTITYX_MAJOR_VERSION 1)
+set(ENTITYX_MINOR_VERSION 0)
+set(ENTITYX_PATCH_VERSION 0alpha1)
 set(ENTITYX_VERSION ${ENTITYX_MAJOR_VERSION}.${ENTITYX_MINOR_VERSION}.${ENTITYX_PATCH_VERSION})
 
 
@@ -11,8 +16,8 @@ include_directories(${CMAKE_CURRENT_LIST_DIR})
 set(ENTITYX_BUILD_TESTING false CACHE BOOL "Enable building of tests.")
 set(ENTITYX_RUN_BENCHMARKS false CACHE BOOL "Run benchmarks (in conjunction with -DENTITYX_BUILD_TESTING=1).")
 set(ENTITYX_MAX_COMPONENTS 64 CACHE STRING "Set the maximum number of components.")
-set(ENTITYX_USE_CPP11_STDLIB true CACHE BOOL "For Clang, specify whether to use libc++ (-stdlib=libc++).")
-set(ENTITYX_BUILD_SHARED false CACHE BOOL "Build shared libraries?")
+set(ENTITYX_DT_TYPE double CACHE STRING "The type used for delta time in EntityX update methods.")
+set(ENTITYX_BUILD_SHARED true CACHE BOOL "Build shared libraries?")
 
 include(${CMAKE_ROOT}/Modules/CheckIncludeFile.cmake)
 include(CheckCXXSourceCompiles)
@@ -21,24 +26,27 @@ include(CheckCXXSourceCompiles)
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Werror -Wall -Wextra -Wno-unused-parameter -Wno-error=unused-variable -Wno-error=sign-compare -std=c++11")
 	set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-	set(CMAKE_CXX_FLAGS_MINSIZEREL "-Os -DNDEBUG")
-	set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+	set(CMAKE_CXX_FLAGS_MINSIZEREL "-g -Os -DNDEBUG")
+	set(CMAKE_CXX_FLAGS_RELEASE "-g -O2 -DNDEBUG")
 	set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g")
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 	# /Zi - Produces a program database (PDB) that contains type information and symbolic debugging information for use with the debugger.
 	# /FS - Allows multiple cl.exe processes to write to the same .pdb file
 	# /DEBUG - Enable debug during linking
 	# /Od - Disables optimization
-	set(CMAKE_CXX_FLAGS_DEBUG "/Zi /FS /DEBUG /Od")
+	set(CMAKE_CXX_FLAGS_DEBUG "/Zi /FS /DEBUG /Od /MDd")
 	# /Ox - Full optimization
 	set(CMAKE_CXX_FLAGS_RELEASE "/Ox -DNDEBUG")
 	set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/Ox /Zi /FS /DEBUG")
 endif()
 
+# if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+#     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Weverything -Wno-c++98-compat -Wno-shadow -Wno-padded -Wno-missing-noreturn -Wno-global-constructors")
+# endif()
+
 # C++11 feature checks
 include(CheckCXX11Features.cmake)
 
-add_definitions(-DGTEST_USE_OWN_TR1_TUPLE=1)
 set(OLD_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
@@ -78,8 +86,6 @@ macro(create_test TARGET_NAME SOURCE)
     target_link_libraries(
         ${TARGET_NAME}
         entityx
-        gtest
-        gtest_main
         ${ARGN}
         )
     add_test(${TARGET_NAME} ${TARGET_NAME})
@@ -103,26 +109,10 @@ require(HAS_CXX11_LONG_LONG "C++11 lambdas")
 message("-- Checking misc features")
 require(HAVE_STDINT_H "stdint.h")
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-	set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-	set(CMAKE_CXX_FLAGS_MINSIZEREL "-Os -DNDEBUG")
-	set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-	set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g")
-elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-	# /Zi - Produces a program database (PDB) that contains type information and symbolic debugging information for use with the debugger.
-	# /FS - Allows multiple cl.exe processes to write to the same .pdb file
-	# /DEBUG - Enable debug during linking
-	# /Od - Disables optimization
-	set(CMAKE_CXX_FLAGS_DEBUG "/Zi /FS /DEBUG /Od")
-	# /Ox - Full optimization
-	set(CMAKE_CXX_FLAGS_RELEASE "/Ox -DNDEBUG")
-	set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/Ox /Zi /FS /DEBUG")
-endif()
-
 # Things to install
 set(install_libs entityx)
 
-set(sources entityx/tags/TagsComponent.cc entityx/deps/Dependencies.cc entityx/System.cc entityx/Event.cc entityx/Entity.cc entityx/Manager.cc entityx/help/Timer.cc)
+set(sources entityx/System.cc entityx/Event.cc entityx/Entity.cc entityx/help/Timer.cc entityx/help/Pool.cc)
 add_library(entityx STATIC ${sources})
 
 if (ENTITYX_BUILD_SHARED)
@@ -136,10 +126,8 @@ if (ENTITYX_BUILD_SHARED)
 endif (ENTITYX_BUILD_SHARED)
 
 if (ENTITYX_BUILD_TESTING)
-    #find_package(Boost 1.48.0 REQUIRED COMPONENTS timer system)
-    add_subdirectory(gtest-1.6.0)
-    include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
     enable_testing()
+    create_test(pool_test entityx/help/Pool_test.cc)
     create_test(entity_test entityx/Entity_test.cc)
     create_test(event_test entityx/Event_test.cc)
     create_test(system_test entityx/System_test.cc)
@@ -147,7 +135,6 @@ if (ENTITYX_BUILD_TESTING)
     create_test(dependencies_test entityx/deps/Dependencies_test.cc)
     if (ENTITYX_RUN_BENCHMARKS)
         message("-- Running benchmarks")
-        add_definitions(-DGTEST_USE_OWN_TR1_TUPLE=1 -DBOOST_NO_CXX11_NUMERIC_LIMITS=1)
         create_test(benchmarks_test entityx/Benchmarks_test.cc)
     else ()
         message("-- Not running benchmarks (use -DENTITYX_RUN_BENCHMARKS=1 to enable)")

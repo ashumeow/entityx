@@ -1,6 +1,6 @@
-# EntityX - A fast, type-safe C++ Entity Component System 
+# EntityX - A fast, type-safe C++ Entity Component System [![Build Status](https://travis-ci.org/alecthomas/entityx.png)](https://travis-ci.org/alecthomas/entityx)
 
-[![Build Status](https://travis-ci.org/alecthomas/entityx.png)](https://travis-ci.org/alecthomas/entityx)
+***NOTE: The current stable release 1.0.0 breaks backwards compataibility with < 1.0.0. See the [change log](CHANGES.md) for details.***
 
 Entity Component Systems (ECS) are a form of decomposition that completely decouples entity logic and data from the entity "objects" themselves. The [Evolve your Hierarchy](http://cowboyprogramming.com/2007/01/05/evolve-your-heirachy/) article provides a solid overview of EC systems and why you should use them.
 
@@ -13,7 +13,7 @@ You can acquire stable releases [here](https://github.com/alecthomas/entityx/rel
 Alternatively, you can check out the current development version with:
 
 ```
-git checkout https://github.com/alecthomas/entityx.git
+git clone https://github.com/alecthomas/entityx.git
 ```
 
 See [below](#installation) for installation instructions.
@@ -24,9 +24,9 @@ EntityX now has a mailing list! Send a mail to [entityx@librelist.com](mailto:en
 
 You can also contact me directly via [email](mailto:alec@swapoff.org) or [Twitter](https://twitter.com/alecthomas).
 
-
 ## Recent Notable Changes
 
+- 2014-03-02 - (1.0.0alpha1) Switch to using cache friendly component storage (big breaking change). Also eradicated use of `std::shared_ptr` for components.
 - 2014-02-13 - Visual C++ support thanks to [Jarrett Chisholm](https://github.com/jarrettchisholm)!
 - 2013-10-29 - Boost has been removed as a primary dependency for builds not using python.
 - 2013-08-21 - Remove dependency on `boost::signal` and switch to embedded [Simple::Signal](http://timj.testbit.eu/2013/cpp11-signal-system-performance/).
@@ -34,6 +34,31 @@ You can also contact me directly via [email](mailto:alec@swapoff.org) or [Twitte
 - 2013-08-17 - Python scripting, and a more robust build system
 
 See the [ChangeLog](https://github.com/alecthomas/entityx/blob/master/CHANGES.md) for details.
+
+## EntityX extensions and example applications
+
+- [Will Usher](https://github.com/Twinklebear) has also written an [Asteroids clone](https://github.com/Twinklebear/asteroids).
+- [Roc Solid Productions](https://github.com/RocSolidProductions) have written a [space shooter](https://github.com/RocSolidProductions/Space-Shooter)!
+
+**DEPRECATED - 0.1.x ONLY**
+
+- [Wu Zhenwei](https://github.com/acaly) has written [Lua bindings](https://github.com/acaly/entityx_lua) for EntityX, allowing entity logic to be extended through Lua scripts.
+- [Python bindings](https://github.com/alecthomas/entityx_python) allowing entity logic to be extended through Python scripts.
+- [Rodrigo Setti](https://github.com/rodrigosetti) has written an OpenGL [Asteroids clone](https://github.com/rodrigosetti/azteroids) which uses EntityX.
+
+## Example
+
+An SFML2 example application is [available](/examples/example.cc) that shows most of EntityX's concepts. It spawns random circles on a 2D plane moving in random directions. If two circles collide they will explode and emit particles. All circles and particles are entities.
+
+It illustrates:
+
+- Separation of data via components.
+- Separation of logic via systems.
+- Use of events (colliding bodies trigger a CollisionEvent).
+
+Compile with:
+
+    c++ -O3 -std=c++11 -Wall -lsfml-system -lsfml-window -lsfml-graphics -lentityx example.cc -o example
 
 ## Overview
 
@@ -58,10 +83,11 @@ An `entityx::Entity` is a convenience class wrapping an opaque `uint64_t` value 
 Creating an entity is as simple as:
 
 ```c++
-entityx::ptr<entityx::EventManager> events(new entityx::EventManager());
-entityx::ptr<entityx::EntityManager> entities(new entityx::EntityManager(event));
+#include <entityx/entityx.h>
 
-entityx::Entity entity = entities->create();
+EntityX entityx;
+
+entityx::Entity entity = entityx.entities.create();
 ```
 
 And destroying an entity is done with:
@@ -75,13 +101,13 @@ entity.destroy();
 - Each `entityx::Entity` is a convenience class wrapping an `entityx::Entity::Id`.
 - An `entityx::Entity` handle can be invalidated with `invalidate()`. This does not affect the underlying entity.
 - When an entity is destroyed the manager adds its ID to a free list and invalidates the `entityx::Entity` handle.
-- When an entity is created IDs are recycled from the free list before allocating new ones.
+- When an entity is created IDs are recycled from the free list first, before allocating new ones.
 - An `entityx::Entity` ID contains an index and a version. When an entity is destroyed, the version associated with the index is incremented, invalidating all previous entities referencing the previous ID.
-- EntityX uses a reference counting smart pointer`entityx::ptr<T>` to manage object lifetimes. As a general rule, passing a pointer to any EntityX method will convert to a smart pointer and take ownership. To maintain your own reference to the pointer you will need to wrap it in `entityx::ptr<T>`.
+- To improve cache coherence, components are constructed in contiguous memory ranges by using `entityx::EntityManager::assign<C>(id, ...)`.
 
 ### Components (entity data)
 
-The general idea with the EntityX interpretation of ECS is to have as little functionality in components as possible. All logic should be contained in Systems.
+The general idea with the EntityX interpretation of ECS is to have as little logic in components as possible. All logic should be contained in Systems.
 
 To that end Components are typically [POD types](http://en.wikipedia.org/wiki/Plain_Old_Data_Structures) consisting of self-contained sets of related data. Implementations are [curiously recurring template pattern](http://en.wikipedia.org/wiki/Curiously_recurring_template_pattern) (CRTP) subclasses of `entityx::Component<T>`.
 
@@ -112,22 +138,14 @@ To associate a component with a previously created entity call ``entityx::Entity
 entity.assign<Position>(1.0f, 2.0f);
 ```
 
-You can also assign existing instances of components:
-
-```c++
-entityx::ptr<Position> position(new Position(1.0f, 2.0f));
-entity.assign(position);
-```
-
 #### Querying entities and their components
 
 To query all entities with a set of components assigned, use ``entityx::EntityManager::entities_with_components()``. This method will return only those entities that have *all* of the specified components associated with them, assigning each component pointer to the corresponding component instance:
 
 ```c++
-for (auto entity : entities->entities_with_components<Position, Direction>()) {
-  entityx::ptr<Position> position = entity.component<Position>();
-  entityx::ptr<Direction> direction = entity.component<Direction>();
-
+Position::Handle position;
+Direction::Handle direction;
+for (Entity entity : entities.entities_with_components(position, direction)) {
   // Do things with entity, position and direction.
 }
 ```
@@ -135,7 +153,7 @@ for (auto entity : entities->entities_with_components<Position, Direction>()) {
 To retrieve a component associated with an entity use ``entityx::Entity::component<C>()``:
 
 ```c++
-entityx::ptr<Position> position = entity.component<Position>();
+Position::Handle position = entity.component<Position>();
 if (position) {
   // Do stuff with position
 }
@@ -157,6 +175,7 @@ system_manager->add<entityx::deps::Dependency<Physics, Position, Direction>>();
 
 - Components must provide a no-argument constructor.
 - The default implementation can handle up to 64 components in total. This can be extended by changing the `entityx::EntityManager::MAX_COMPONENTS` constant.
+- Each type of component is allocated in (mostly) contiguous blocks to improve cache coherency.
 
 ### Systems (implementing behavior)
 
@@ -166,11 +185,10 @@ A basic movement system might be implemented with something like the following:
 
 ```c++
 struct MovementSystem : public System<MovementSystem> {
-  void update(entityx::ptr<entityx::EntityManager> es, entityx::ptr<entityx::EventManager> events, double dt) override {
-    for (auto entity : es->entities_with_components<Position, Direction>()) {
-      entityx::ptr<Position> position = entity.component<Position>();
-      entityx::ptr<Direction> direction = entity.component<Direction>();
-
+  void update(entityx::EntityManager &es, entityx::EventManager &events, TimeDelta dt) override {
+    Position::Handle position;
+    Direction::Handle direction;
+    for (Entity entity : es.entities_with_components(position, direction)) {
       position->x += direction->x * dt;
       position->y += direction->y * dt;
     }
@@ -204,10 +222,10 @@ Next we implement our collision system, which emits ``Collision`` objects via an
 ```c++
 class CollisionSystem : public System<CollisionSystem> {
  public:
-  void update(entityx::ptr<entityx::EntityManager> es, entityx::ptr<entityx::EventManager> events, double dt) override {
-    entityx::ptr<Position> left_position, right_position;
-    for (auto left_entity : es->entities_with_components<Position>(left_position)) {
-      for (auto right_entity : es->entities_with_components<Position>(right_position)) {
+  void update(entityx::EntityManager &es, entityx::EventManager &events, TimeDelta dt) override {
+    Position::Handle left_position, right_position;
+    for (Entity left_entity : es.entities_with_components(left_position)) {
+      for (Entity right_entity : es.entities_with_components(right_position)) {
         if (collide(left_position, right_position)) {
           events->emit<Collision>(left_entity, right_entity);
         }
@@ -223,11 +241,11 @@ Objects interested in receiving collision information can subscribe to ``Collisi
 
 ```c++
 struct DebugSystem : public System<DebugSystem>, Receiver<DebugSystem> {
-  void configure(entityx::ptr<entityx::EventManager> event_manager) {
-    event_manager->subscribe<Collision>(*this);
+  void configure(entityx::EventManager &event_manager) {
+    event_manager.subscribe<Collision>(*this);
   }
 
-  void update(ptr<entityx::EntityManager> entities, ptr<entityx::EventManager> events, double dt) {}
+  void update(entityx::EntityManager &entities, entityx::EventManager &events, TimeDelta dt) {}
 
   void receive(const Collision &collision) {
     LOG(DEBUG) << "entities collided: " << collision.left << " and " << collision.right << endl;
@@ -243,12 +261,12 @@ Several events are emitted by EntityX itself:
   - `entityx::Entity entity` - Newly created entityx::Entity.
 - `EntityDestroyedEvent` - emitted when an entityx::Entity is *about to be* destroyed.
   - `entityx::Entity entity` - entityx::Entity about to be destroyed.
-- `ComponentAddedEvent<T>` - emitted when a new component is added to an entity.
+- `ComponentAddedEvent<C>` - emitted when a new component is added to an entity.
   - `entityx::Entity entity` - entityx::Entity that component was added to.
-  - `entityx::ptr<T> component` - The component added.
-- `ComponentRemovedEvent<T>` - emitted when a component is removed from an entity.
+  - `ComponentHandle<C> component` - The component added.
+- `ComponentRemovedEvent<C>` - emitted when a component is removed from an entity.
   - `entityx::Entity entity` - entityx::Entity that component was removed from.
-  - `entityx::ptr<T> component` - The component removed.
+  - `ComponentHandle<C> component` - The component removed.
 
 #### Implementation notes
 
@@ -259,61 +277,46 @@ Several events are emitted by EntityX itself:
 
 ### Manager (tying it all together)
 
-Managing systems, components and entities can be streamlined by subclassing `Manager`. It is not necessary, but it provides callbacks for configuring systems, initializing entities, and so on.
+Managing systems, components and entities can be streamlined by using the
+"quick start" class `EntityX`. It simply provides pre-initialized
+`EventManager`, `EntityManager` and `SystemManager` instances.
 
-To use it, subclass `Manager` and implement `configure()`, `initialize()` and `update()`. In this example a new `Manager` is created for each level.
+To use it, subclass `EntityX`:
 
 ```c++
-class Level : public Manager {
+class Level : public EntityX {
 public:
-  explicit Level(filename string) : filename_(filename) {}
+  explicit Level(filename string) {
+    systems.add<DebugSystem>();
+    systems.add<MovementSystem>();
+    systems.add<CollisionSystem>();
+    systems.configure();
 
- protected:
-  void configure() {
-    system_manager->add<DebugSystem>();
-    system_manager->add<MovementSystem>();
-    system_manager->add<CollisionSystem>();
-  };
-
-  void initialize() {
-    level_.load(filename_);
+    level.load(filename);
 
     for (auto e : level.entity_data()) {
-      entityx::Entity entity = entity_manager->create();
+      entityx::Entity entity = entities.create();
       entity.assign<Position>(rand() % 100, rand() % 100);
       entity.assign<Direction>((rand() % 10) - 5, (rand() % 10) - 5);
     }
   }
 
-  void update(double dt) {
-    system_manager->update<MovementSystem>(dt);
-    system_manager->update<CollisionSystem>(dt);
+  void update(TimeDelta dt) {
+    systems.update<DebugSystem>(dt);
+    systems.update<MovementSystem>(dt);
+    systems.update<CollisionSystem>(dt);
   }
 
-  string filename_;
-  Level level_;
+  Level level;
 };
 ```
 
 
-Once created, start the manager:
-
-```c++
-Level level("mylevel.dat");
-level.start();
-```
-
-You can then either start the (simplistic) main loop:
-
-```c++
-level.run();
-```
-
-Or step the entities explicitly inside your own game loop (recommended):
+You can then step the entities explicitly inside your own game loop:
 
 ```c++
 while (true) {
-  level.step(0.1);
+  level.update(0.1);
 }
 ```
 
@@ -367,12 +370,11 @@ CC=clang-3.1 CXX=clang++3.1 cmake ...
 
 Once these dependencies are installed you should be able to build and install EntityX as below. The following options can be passed to cmake to modify how EntityX is built:
 
-- `-DENTITYX_BUILD_PYTHON=1` - Build Python scripting integration.
-- `-DENTITYX_BUILD_TESTING=1` - Build tests (run with `make test`).
 - `-DENTITYX_RUN_BENCHMARKS=1` - In conjunction with `-DENTITYX_BUILD_TESTING=1`, also build benchmarks.
 - `-DENTITYX_MAX_COMPONENTS=64` - Override the maximum number of components that can be assigned to each entity.
 - `-DENTITYX_BUILD_SHARED=1` - Whether to build shared libraries (defaults to 1).
-- `-DENTITYX_BUILD_TESTING=0` - Whether to build tests (defaults to 0). Run with "make && make test".
+- `-DENTITYX_BUILD_TESTING=1` - Whether to build tests (defaults to 0). Run with "make && make test".
+- `-DENTITYX_DT_TYPE=double` - The type used for delta time in EntityX update methods.
 
 Once you have selected your flags, build and install with:
 

@@ -12,7 +12,10 @@
 
 namespace entityx {
 
-BaseEvent::Family BaseEvent::family_counter_ = 1;
+BaseEvent::Family BaseEvent::family_counter_ = 0;
+
+BaseEvent::~BaseEvent() {
+}
 
 EventManager::EventManager() {
 }

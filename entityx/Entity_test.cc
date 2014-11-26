@@ -8,19 +8,26 @@
  * Author: Alec Thomas <alec@swapoff.org>
  */
 
+#define CATCH_CONFIG_MAIN
+
 #include <algorithm>
 #include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
-#include <gtest/gtest.h>
-#include "entityx/Entity.h"
+#include <set>
+#include <map>
+#include "entityx/3rdparty/catch.hpp"
+#include "entityx/entityx.h"
 
 // using namespace std;
 using namespace entityx;
 
 using std::ostream;
 using std::vector;
+using std::set;
+using std::map;
+using std::pair;
 using std::string;
 
 template <typename T>
@@ -36,28 +43,29 @@ int size(const T &t) {
 struct Position : Component<Position> {
   Position(float x = 0.0f, float y = 0.0f) : x(x), y(y) {}
 
-  bool operator == (const Position &other) const { return x == other.x && y == other.y; }
+  bool operator==(const Position &other) const {
+    return x == other.x && y == other.y;
+  }
 
   float x, y;
 };
 
-
-ostream &operator << (ostream &out, const Position &position) {
+ostream &operator<<(ostream &out, const Position &position) {
   out << "Position(" << position.x << ", " << position.y << ")";
   return out;
 }
 
-
 struct Direction : Component<Direction> {
   Direction(float x = 0.0f, float y = 0.0f) : x(x), y(y) {}
 
-  bool operator == (const Direction &other) const { return x == other.x && y == other.y; }
+  bool operator==(const Direction &other) const {
+    return x == other.x && y == other.y;
+  }
 
   float x, y;
 };
 
-
-ostream &operator << (ostream &out, const Direction &direction) {
+ostream &operator<<(ostream &out, const Direction &direction) {
   out << "Direction(" << direction.x << ", " << direction.y << ")";
   return out;
 }
@@ -65,232 +73,229 @@ ostream &operator << (ostream &out, const Direction &direction) {
 struct Tag : Component<Tag> {
   explicit Tag(string tag) : tag(tag) {}
 
-  bool operator == (const Tag &other) const { return tag == other.tag; }
+  bool operator==(const Tag &other) const { return tag == other.tag; }
 
   string tag;
 };
 
-ostream &operator << (ostream &out, const Tag &tag) {
+ostream &operator<<(ostream &out, const Tag &tag) {
   out << "Tag(" << tag.tag << ")";
   return out;
 }
 
-class EntityManagerTest : public ::testing::Test {
- protected:
-  EntityManagerTest() : ev(EventManager::make()), em(EntityManager::make(ev)) {}
 
-  ptr<EventManager> ev;
-  ptr<EntityManager> em;
+struct EntityManagerFixture {
+  EntityManagerFixture() : em(ev) {}
 
-  virtual void SetUp() {
-  }
+  EventManager ev;
+  EntityManager em;
 };
 
 
-TEST_F(EntityManagerTest, TestCreateEntity) {
-  ASSERT_EQ(em->size(), 0UL);
+TEST_CASE_METHOD(EntityManagerFixture, "TestCreateEntity") {
+  REQUIRE(em.size() ==  0UL);
 
   Entity e2;
-  ASSERT_FALSE(e2.valid());
+  REQUIRE(!(e2.valid()));
 
-  Entity e = em->create();
-  ASSERT_TRUE(e.valid());
-  ASSERT_EQ(em->size(), 1UL);
+  Entity e = em.create();
+  REQUIRE(e.valid());
+  REQUIRE(em.size() ==  1UL);
 
   e2 = e;
-  ASSERT_TRUE(e2.valid());
+  REQUIRE(e2.valid());
 }
 
-TEST_F(EntityManagerTest, TestEntityAsBoolean) {
-  ASSERT_EQ(em->size(), 0UL);
-  Entity e = em->create();
-  ASSERT_TRUE(e.valid());
-  ASSERT_EQ(em->size(), 1UL);
-  ASSERT_FALSE(!e);
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityAsBoolean") {
+  REQUIRE(em.size() ==  0UL);
+  Entity e = em.create();
+  REQUIRE(e.valid());
+  REQUIRE(em.size() ==  1UL);
+  REQUIRE(!(!e));
 
   e.destroy();
 
-  ASSERT_EQ(em->size(), 0UL);
+  REQUIRE(em.size() ==  0UL);
 
-  ASSERT_TRUE(!e);
+  REQUIRE(!e);
 
   Entity e2;  // Not initialized
-  ASSERT_TRUE(!e2);
+  REQUIRE(!e2);
 }
 
-TEST_F(EntityManagerTest, TestEntityReuse) {
-  Entity e1 = em->create();
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityReuse") {
+  Entity e1 = em.create();
   Entity e2 = e1;
   auto id = e1.id();
-  ASSERT_TRUE(e1.valid());
-  ASSERT_TRUE(e2.valid());
+  REQUIRE(e1.valid());
+  REQUIRE(e2.valid());
   e1.destroy();
-  ASSERT_TRUE(!e1.valid());
-  ASSERT_TRUE(!e2.valid());
-  Entity e3 = em->create();
+  REQUIRE(!e1.valid());
+  REQUIRE(!e2.valid());
+  Entity e3 = em.create();
   // It is assumed that the allocation will reuse the same entity id, though
   // the version will change.
   auto new_id = e3.id();
-  ASSERT_NE(new_id, id);
-  ASSERT_EQ(new_id.id() & 0xffffffffUL, id.id() & 0xffffffffUL);
+  REQUIRE(new_id !=  id);
+  REQUIRE((new_id.id() & 0xffffffffUL) == (id.id() & 0xffffffffUL));
 }
 
-TEST_F(EntityManagerTest, TestComponentConstruction) {
-  auto e = em->create();
+TEST_CASE_METHOD(EntityManagerFixture, "TestComponentConstruction") {
+  auto e = em.create();
   auto p = e.assign<Position>(1, 2);
   auto cp = e.component<Position>();
-  ASSERT_EQ(p, cp);
-  ASSERT_FLOAT_EQ(1.0, cp->x);
-  ASSERT_FLOAT_EQ(2.0, cp->y);
+  REQUIRE(p ==  cp);
+  REQUIRE(1.0 == Approx(cp->x));
+  REQUIRE(2.0 == Approx(cp->y));
 }
 
-TEST_F(EntityManagerTest, TestComponentCreationWithObject) {
-  auto e = em->create();
-  auto p = e.assign(ptr<Position>(new Position(1.0, 2.0)));
-  auto cp = e.component<Position>();
-  ASSERT_EQ(p, cp);
-  ASSERT_FLOAT_EQ(1.0, cp->x);
-  ASSERT_FLOAT_EQ(2.0, cp->y);
-}
-
-TEST_F(EntityManagerTest, TestDestroyEntity) {
-  Entity e = em->create();
-  Entity f = em->create();
-  auto ep = e.assign<Position>();
+TEST_CASE_METHOD(EntityManagerFixture, "TestDestroyEntity") {
+  Entity e = em.create();
+  Entity f = em.create();
+  e.assign<Position>();
   f.assign<Position>();
   e.assign<Direction>();
   f.assign<Direction>();
 
-  ASSERT_EQ(2, use_count(ep));
-  ASSERT_TRUE(e.valid());
-  ASSERT_TRUE(f.valid());
-  ASSERT_TRUE(static_cast<bool>(e.component<Position>()));
-  ASSERT_TRUE(static_cast<bool>(e.component<Direction>()));
-  ASSERT_TRUE(static_cast<bool>(f.component<Position>()));
-  ASSERT_TRUE(static_cast<bool>(f.component<Direction>()));
+  REQUIRE(e.valid());
+  REQUIRE(f.valid());
+  REQUIRE(static_cast<bool>(e.component<Position>()));
+  REQUIRE(static_cast<bool>(e.component<Direction>()));
+  REQUIRE(static_cast<bool>(f.component<Position>()));
+  REQUIRE(static_cast<bool>(f.component<Direction>()));
 
   e.destroy();
 
-  ASSERT_FALSE(e.valid());
-  ASSERT_TRUE(f.valid());
-  ASSERT_TRUE(static_cast<bool>(f.component<Position>()));
-  ASSERT_TRUE(static_cast<bool>(f.component<Direction>()));
-  ASSERT_EQ(1, use_count(ep));
+  REQUIRE(!(e.valid()));
+  REQUIRE(f.valid());
+  REQUIRE(static_cast<bool>(f.component<Position>()));
+  REQUIRE(static_cast<bool>(f.component<Direction>()));
 }
 
-TEST_F(EntityManagerTest, TestGetEntitiesWithComponent) {
-  Entity e = em->create();
-  Entity f = em->create();
-  Entity g = em->create();
+TEST_CASE_METHOD(EntityManagerFixture, "TestGetEntitiesWithComponent") {
+  Entity e = em.create();
+  Entity f = em.create();
+  Entity g = em.create();
   e.assign<Position>();
   e.assign<Direction>();
   f.assign<Position>();
   g.assign<Position>();
-  ASSERT_EQ(3, size(em->entities_with_components<Position>()));
-  ASSERT_EQ(1, size(em->entities_with_components<Direction>()));
+  REQUIRE(3 ==  size(em.entities_with_components<Position>()));
+  REQUIRE(1 ==  size(em.entities_with_components<Direction>()));
 }
 
-TEST_F(EntityManagerTest, TestGetEntitiesWithIntersectionOfComponents) {
+TEST_CASE_METHOD(EntityManagerFixture, "TestGetEntitiesWithIntersectionOfComponents") {
   vector<Entity> entities;
   for (int i = 0; i < 150; ++i) {
-    Entity e = em->create();
+    Entity e = em.create();
     entities.push_back(e);
-    if (i % 2 == 0)
-      e.assign<Position>();
-    if (i % 3 == 0)
-      e.assign<Direction>();
+    if (i % 2 == 0) e.assign<Position>();
+    if (i % 3 == 0) e.assign<Direction>();
   }
-  ASSERT_EQ(50, size(em->entities_with_components<Direction>()));
-  ASSERT_EQ(75, size(em->entities_with_components<Position>()));
-  ASSERT_EQ(25, size(em->entities_with_components<Direction, Position>()));
+  REQUIRE(50 ==  size(em.entities_with_components<Direction>()));
+  REQUIRE(75 ==  size(em.entities_with_components<Position>()));
+  REQUIRE(25 ==  size(em.entities_with_components<Direction, Position>()));
 }
 
-TEST_F(EntityManagerTest, TestGetEntitiesWithComponentAndUnpacking) {
+TEST_CASE_METHOD(EntityManagerFixture, "TestGetEntitiesWithComponentAndUnpacking") {
   vector<Entity::Id> entities;
-  Entity e = em->create();
-  Entity f = em->create();
-  Entity g = em->create();
-  std::vector<std::pair<ptr<Position>, ptr<Direction>>> position_directions;
+  Entity e = em.create();
+  Entity f = em.create();
+  Entity g = em.create();
+  std::vector<std::pair<Position::Handle, Direction::Handle>> position_directions;
   position_directions.push_back(std::make_pair(
-          e.assign<Position>(1.0f, 2.0f),
-          e.assign<Direction>(3.0f, 4.0f)));
+      e.assign<Position>(1.0f, 2.0f), e.assign<Direction>(3.0f, 4.0f)));
   position_directions.push_back(std::make_pair(
-          f.assign<Position>(7.0f, 8.0f),
-          f.assign<Direction>(9.0f, 10.0f)));
+      f.assign<Position>(7.0f, 8.0f), f.assign<Direction>(9.0f, 10.0f)));
   auto thetag = f.assign<Tag>("tag");
   g.assign<Position>(5.0f, 6.0f);
   int i = 0;
 
+  Position::Handle position;
+  REQUIRE(3 ==  size(em.entities_with_components(position)));
 
-  ptr<Position> position;
-  ASSERT_EQ(3, size(em->entities_with_components(position)));
-
-  ptr<Direction> direction;
-  for (auto unused_entity : em->entities_with_components(position, direction)) {
+  Direction::Handle direction;
+  for (auto unused_entity : em.entities_with_components(position, direction)) {
     (void)unused_entity;
-    ASSERT_TRUE(static_cast<bool>(position));
-    ASSERT_TRUE(static_cast<bool>(direction));
+    REQUIRE(position);
+    REQUIRE(direction);
     auto pd = position_directions.at(i);
-    ASSERT_EQ(position, pd.first);
-    ASSERT_EQ(direction, pd.second);
+    REQUIRE(position ==  pd.first);
+    REQUIRE(direction ==  pd.second);
     ++i;
   }
-  ASSERT_EQ(2, i);
-  ptr<Tag> tag;
+  REQUIRE(2 ==  i);
+  Tag::Handle tag;
   i = 0;
-  for (auto unused_entity : em->entities_with_components(position, direction, tag)) {
+  for (auto unused_entity :
+       em.entities_with_components(position, direction, tag)) {
     (void)unused_entity;
-    ASSERT_TRUE(static_cast<bool>(position));
-    ASSERT_TRUE(static_cast<bool>(direction));
-    ASSERT_TRUE(static_cast<bool>(tag));
+    REQUIRE(static_cast<bool>(position));
+    REQUIRE(static_cast<bool>(direction));
+    REQUIRE(static_cast<bool>(tag));
     auto pd = position_directions.at(1);
-    ASSERT_EQ(position, pd.first);
-    ASSERT_EQ(direction, pd.second);
-    ASSERT_EQ(tag, thetag);
+    REQUIRE(position ==  pd.first);
+    REQUIRE(direction ==  pd.second);
+    REQUIRE(tag ==  thetag);
     i++;
   }
-  ASSERT_EQ(1, i);
+  REQUIRE(1 ==  i);
 }
 
-TEST_F(EntityManagerTest, TestUnpack) {
-  Entity e = em->create();
+TEST_CASE_METHOD(EntityManagerFixture, "TestIterateAllEntitiesSkipsDestroyed") {
+  Entity a = em.create();
+  Entity b = em.create();
+  Entity c = em.create();
+
+  b.destroy();
+
+  auto it = em.entities_for_debugging().begin();
+  REQUIRE(a.id() == (*it).id());
+  ++it;
+  REQUIRE(c.id() == (*it).id());
+}
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestUnpack") {
+  Entity e = em.create();
   auto p = e.assign<Position>(1.0, 2.0);
   auto d = e.assign<Direction>(3.0, 4.0);
   auto t = e.assign<Tag>("tag");
 
-  ptr<Position> up;
-  ptr<Direction> ud;
-  ptr<Tag> ut;
+  Position::Handle up;
+  Direction::Handle ud;
+  Tag::Handle ut;
   e.unpack(up);
-  ASSERT_EQ(p, up);
+  REQUIRE(p ==  up);
   e.unpack(up, ud);
-  ASSERT_EQ(p, up);
-  ASSERT_EQ(d, ud);
+  REQUIRE(p ==  up);
+  REQUIRE(d ==  ud);
   e.unpack(up, ud, ut);
-  ASSERT_EQ(p, up);
-  ASSERT_EQ(d, ud);
-  ASSERT_EQ(t, ut);
+  REQUIRE(p ==  up);
+  REQUIRE(d ==  ud);
+  REQUIRE(t ==  ut);
 }
 
-// gcc 4.7.2 does not allow this struct to be declared locally inside the TEST_F.
-
-// TEST_F(EntityManagerTest, TestUnpackNullMissing) {
-//   Entity e = em->create();
+// gcc 4.7.2 does not allow this struct to be declared locally inside the
+// TEST_CASE_METHOD.EntityManagerFixture, " //" TEST_CASE_METHOD(EntityManagerFixture, "TestUnpackNullMissing") {
+//   Entity e = em.create();
 //   auto p = e.assign<Position>();
 
-//   ptr<Position> up(reinterpret_cast<Position*>(0Xdeadbeef), NullDeleter());
-//   ptr<Direction> ud(reinterpret_cast<Direction*>(0Xdeadbeef), NullDeleter());
+//   std::shared_ptr<Position> up(reinterpret_cast<Position*>(0Xdeadbeef),
+// NullDeleter());
+//   std::shared_ptr<Direction> ud(reinterpret_cast<Direction*>(0Xdeadbeef),
+// NullDeleter());
 //   e.unpack<Position, Direction>(up, ud);
-//   ASSERT_EQ(p, up);
-//   ASSERT_EQ(ptr<Direction>(), ud);
+//   REQUIRE(p ==  up);
+//   REQUIRE(std::shared_ptr<Direction>() ==  ud);
 // }
 
-TEST_F(EntityManagerTest, TestComponentIdsDiffer) {
-  ASSERT_NE(Position::family(), Direction::family());
+TEST_CASE_METHOD(EntityManagerFixture, "TestComponentIdsDiffer") {
+  REQUIRE(Position::family() !=  Direction::family());
 }
 
-TEST_F(EntityManagerTest, TestEntityCreatedEvent) {
-  struct EntityCreatedEventReceiver : public Receiver<EntityCreatedEventReceiver> {
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityCreatedEvent") {
+  struct EntityCreatedEventReceiver
+      : public Receiver<EntityCreatedEventReceiver> {
     void receive(const EntityCreatedEvent &event) {
       created.push_back(event.entity);
     }
@@ -299,17 +304,18 @@ TEST_F(EntityManagerTest, TestEntityCreatedEvent) {
   };
 
   EntityCreatedEventReceiver receiver;
-  ev->subscribe<EntityCreatedEvent>(receiver);
+  ev.subscribe<EntityCreatedEvent>(receiver);
 
-  ASSERT_EQ(0UL, receiver.created.size());
+  REQUIRE(0UL ==  receiver.created.size());
   for (int i = 0; i < 10; ++i) {
-    em->create();
+    em.create();
   }
-  ASSERT_EQ(10UL, receiver.created.size());
+  REQUIRE(10UL ==  receiver.created.size());
 }
 
-TEST_F(EntityManagerTest, TestEntityDestroyedEvent) {
-  struct EntityDestroyedEventReceiver : public Receiver<EntityDestroyedEventReceiver> {
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityDestroyedEvent") {
+  struct EntityDestroyedEventReceiver
+      : public Receiver<EntityDestroyedEventReceiver> {
     void receive(const EntityDestroyedEvent &event) {
       destroyed.push_back(event.entity);
     }
@@ -318,115 +324,257 @@ TEST_F(EntityManagerTest, TestEntityDestroyedEvent) {
   };
 
   EntityDestroyedEventReceiver receiver;
-  ev->subscribe<EntityDestroyedEvent>(receiver);
+  ev.subscribe<EntityDestroyedEvent>(receiver);
 
-  ASSERT_EQ(0UL, receiver.destroyed.size());
+  REQUIRE(0UL ==  receiver.destroyed.size());
   vector<Entity> entities;
   for (int i = 0; i < 10; ++i) {
-    entities.push_back(em->create());
+    entities.push_back(em.create());
   }
-  ASSERT_EQ(0UL, receiver.destroyed.size());
+  REQUIRE(0UL ==  receiver.destroyed.size());
   for (auto e : entities) {
     e.destroy();
   }
-  ASSERT_EQ(entities, receiver.destroyed);
+  REQUIRE(10UL == receiver.destroyed.size());
+  REQUIRE(entities ==  receiver.destroyed);
 }
 
-TEST_F(EntityManagerTest, TestComponentAddedEvent) {
-  struct ComponentAddedEventReceiver : public Receiver<ComponentAddedEventReceiver> {
+TEST_CASE_METHOD(EntityManagerFixture, "TestComponentAddedEvent") {
+  struct ComponentAddedEventReceiver
+      : public Receiver<ComponentAddedEventReceiver> {
+
+    ComponentAddedEventReceiver()
+      : position_events(0), direction_events(0) {}
+
     void receive(const ComponentAddedEvent<Position> &event) {
       auto p = event.component;
       float n = static_cast<float>(position_events);
-      ASSERT_EQ(p->x, n);
-      ASSERT_EQ(p->y, n);
+      REQUIRE(p->x ==  n);
+      REQUIRE(p->y ==  n);
       position_events++;
     }
 
     void receive(const ComponentAddedEvent<Direction> &event) {
       auto p = event.component;
       float n = static_cast<float>(direction_events);
-      ASSERT_EQ(p->x, -n);
-      ASSERT_EQ(p->y, -n);
+      REQUIRE(p->x ==  -n);
+      REQUIRE(p->y ==  -n);
       direction_events++;
     }
 
-    int position_events = 0;
-    int direction_events = 0;
+    int position_events;
+    int direction_events;
   };
 
   ComponentAddedEventReceiver receiver;
-  ev->subscribe<ComponentAddedEvent<Position>>(receiver);
-  ev->subscribe<ComponentAddedEvent<Direction>>(receiver);
+  ev.subscribe<ComponentAddedEvent<Position>>(receiver);
+  ev.subscribe<ComponentAddedEvent<Direction>>(receiver);
 
-  ASSERT_NE(ComponentAddedEvent<Position>::family(),
+  REQUIRE(ComponentAddedEvent<Position>::family() !=
             ComponentAddedEvent<Direction>::family());
 
-  ASSERT_EQ(0, receiver.position_events);
-  ASSERT_EQ(0, receiver.direction_events);
+  REQUIRE(0 ==  receiver.position_events);
+  REQUIRE(0 ==  receiver.direction_events);
   for (int i = 0; i < 10; ++i) {
-    Entity e = em->create();
+    Entity e = em.create();
     e.assign<Position>(static_cast<float>(i), static_cast<float>(i));
     e.assign<Direction>(static_cast<float>(-i), static_cast<float>(-i));
   }
-  ASSERT_EQ(10, receiver.position_events);
-  ASSERT_EQ(10, receiver.direction_events);
+  REQUIRE(10 ==  receiver.position_events);
+  REQUIRE(10 ==  receiver.direction_events);
 }
 
-TEST_F(EntityManagerTest, TestComponentRemovedEvent) {
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestComponentRemovedEvent") {
   struct ComponentRemovedReceiver : public Receiver<ComponentRemovedReceiver> {
     void receive(const ComponentRemovedEvent<Direction> &event) {
       removed = event.component;
     }
 
-    ptr<Direction> removed;
+    Direction::Handle removed;
   };
 
   ComponentRemovedReceiver receiver;
-  ev->subscribe<ComponentRemovedEvent<Direction>>(receiver);
+  ev.subscribe<ComponentRemovedEvent<Direction>>(receiver);
 
-  ASSERT_FALSE(receiver.removed);
-  Entity e = em->create();
-  e.assign<Direction>(1.0, 2.0);
-  auto p = e.remove<Direction>();
-  ASSERT_EQ(receiver.removed, p);
-  ASSERT_FALSE(e.component<Direction>());
+  REQUIRE(!(receiver.removed));
+  Entity e = em.create();
+  Direction::Handle p = e.assign<Direction>(1.0, 2.0);
+  e.remove<Direction>();
+  REQUIRE(receiver.removed ==  p);
+  REQUIRE(!(e.component<Direction>()));
 }
 
-TEST_F(EntityManagerTest, TestEntityAssignment) {
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityAssignment") {
   Entity a, b;
-  a = em->create();
-  ASSERT_NE(a, b);
+  a = em.create();
+  REQUIRE(a !=  b);
   b = a;
-  ASSERT_EQ(a, b);
+  REQUIRE(a ==  b);
   a.invalidate();
-  ASSERT_NE(a, b);
+  REQUIRE(a !=  b);
 }
 
-TEST_F(EntityManagerTest, TestEntityDestroyAll) {
-  Entity a = em->create(), b = em->create();
-  em->destroy_all();
-  ASSERT_FALSE(a.valid());
-  ASSERT_FALSE(b.valid());
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityDestroyAll") {
+  Entity a = em.create(), b = em.create();
+  em.reset();
+  REQUIRE(!(a.valid()));
+  REQUIRE(!(b.valid()));
 }
 
-
-TEST_F(EntityManagerTest, TestEntityDestroyHole) {
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityDestroyHole") {
   std::vector<Entity> entities;
 
-  auto count = [this]() -> int {
-    auto e = em->entities_with_components<Position>();
-    return std::count_if(e.begin(), e.end(), [] (const Entity &) { return true; });
+  auto count = [this]()->int {
+    auto e = em.entities_with_components<Position>();
+    return std::count_if(e.begin(), e.end(),
+                         [](const Entity &) { return true; });
   };
 
   for (int i = 0; i < 5000; i++) {
-    auto e = em->create();
+    auto e = em.create();
     e.assign<Position>();
     entities.push_back(e);
   }
 
-  ASSERT_EQ(count(), 5000);
+  REQUIRE(count() ==  5000);
 
   entities[2500].destroy();
 
-  ASSERT_EQ(count(), 4999);
+  REQUIRE(count() ==  4999);
+}
+
+// TODO(alec): Disable this on OSX - it doesn't seem to be possible to catch it?!?
+// TEST_CASE_METHOD(EntityManagerFixture, "DeleteComponentThrowsBadAlloc") {
+//   Position *position = new Position();
+//   REQUIRE_THROWS_AS(delete position, std::bad_alloc);
+// }
+
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestComponentHandleInvalidatedWhenEntityDestroyed") {
+  Entity a = em.create();
+  Position::Handle position = a.assign<Position>(1, 2);
+  REQUIRE(position);
+  REQUIRE(position->x == 1);
+  REQUIRE(position->y == 2);
+  a.destroy();
+  REQUIRE(!position);
+}
+
+struct CopyVerifier : Component<CopyVerifier> {
+  CopyVerifier() : copied(false) {}
+  CopyVerifier(const CopyVerifier &other) {
+    copied = other.copied + 1;
+  }
+
+  int copied;
+};
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestComponentAssignmentFromCopy") {
+  Entity a = em.create();
+  CopyVerifier original;
+  CopyVerifier::Handle copy = a.assign_from_copy(original);
+  REQUIRE(copy);
+  REQUIRE(copy->copied == 1);
+  a.destroy();
+  REQUIRE(!copy);
+}
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestComponentHandleInvalidatedWhenComponentDestroyed") {
+  Entity a = em.create();
+  Position::Handle position = a.assign<Position>(1, 2);
+  REQUIRE(position);
+  REQUIRE(position->x == 1);
+  REQUIRE(position->y == 2);
+  a.remove<Position>();
+  REQUIRE(!position);
+}
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestDeleteEntityWithNoComponents") {
+  Entity a = em.create();
+  a.assign<Position>(1, 2);
+  Entity b = em.create();
+  b.destroy();
+}
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityInStdSet") {
+  Entity a = em.create();
+  Entity b = em.create();
+  Entity c = em.create();
+  set<Entity> entitySet;
+  REQUIRE(entitySet.insert(a).second);
+  REQUIRE(entitySet.insert(b).second);
+  REQUIRE(entitySet.insert(c).second);
+}
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityInStdMap") {
+  Entity a = em.create();
+  Entity b = em.create();
+  Entity c = em.create();
+  map<Entity, int> entityMap;
+  REQUIRE(entityMap.insert(pair<Entity, int>(a, 1)).second);
+  REQUIRE(entityMap.insert(pair<Entity, int>(b, 2)).second);
+  REQUIRE(entityMap.insert(pair<Entity, int>(c, 3)).second);
+  REQUIRE(entityMap[a] == 1);
+  REQUIRE(entityMap[b] == 2);
+  REQUIRE(entityMap[c] == 3);
+}
+
+TEST_CASE_METHOD(EntityManagerFixture, "TestEntityComponentsFromTuple") {
+  Entity e = em.create();
+  e.assign<Position>(1, 2);
+  e.assign<Direction>(3, 4);
+
+  std::tuple<Position::Handle, Direction::Handle> components = e.components<Position, Direction>();
+
+  REQUIRE(std::get<0>(components)->x == 1);
+  REQUIRE(std::get<0>(components)->y == 2);
+  REQUIRE(std::get<1>(components)->x == 3);
+  REQUIRE(std::get<1>(components)->y == 4);
+}
+
+TEST_CASE("TestComponentDestructorCalledWhenManagerDestroyed") {
+  struct Freed {
+    explicit Freed(bool &yes) : yes(yes) {}
+    ~Freed() { yes = true; }
+
+    bool &yes;
+  };
+
+  struct Test : Component<Test> {
+    Test(bool &yes) : freed(yes) {}
+
+    Freed freed;
+  };
+
+  bool freed = false;
+  {
+    EntityX e;
+    auto test = e.entities.create();
+    test.assign<Test>(freed);
+  }
+  REQUIRE(freed == true);
+}
+
+TEST_CASE("TestComponentDestructorCalledWhenEntityDestroyed") {
+  struct Freed {
+    explicit Freed(bool &yes) : yes(yes) {}
+    ~Freed() { yes = true; }
+
+    bool &yes;
+  };
+
+  struct Test : Component<Test> {
+    Test(bool &yes) : freed(yes) {}
+
+    Freed freed;
+  };
+
+  bool freed = false;
+  EntityX e;
+  auto test = e.entities.create();
+  test.assign<Test>(freed);
+  REQUIRE(freed == false);
+  test.destroy();
+  REQUIRE(freed == true);
 }

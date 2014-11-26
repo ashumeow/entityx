@@ -8,9 +8,11 @@
  * Author: Alec Thomas <alec@swapoff.org>
  */
 
-#include <gtest/gtest.h>
+#define CATCH_CONFIG_MAIN
+
 #include <string>
 #include <vector>
+#include "entityx/3rdparty/catch.hpp"
 #include "entityx/Event.h"
 
 
@@ -32,50 +34,49 @@ struct ExplosionSystem : public Receiver<ExplosionSystem> {
   int damage_received = 0;
 };
 
-TEST(EventManagerTest, TestEmitReceive) {
-  auto em = EventManager::make();
+TEST_CASE("TestEmitReceive") {
+  EventManager em;
   ExplosionSystem explosion_system;
-  em->subscribe<Explosion>(explosion_system);
-  ASSERT_EQ(0, explosion_system.damage_received);
-  em->emit<Explosion>(10);
-  ASSERT_EQ(10, explosion_system.damage_received);
+  em.subscribe<Explosion>(explosion_system);
+  REQUIRE(0 == explosion_system.damage_received);
+  em.emit<Explosion>(10);
+  REQUIRE(10 == explosion_system.damage_received);
 }
 
-
-TEST(EventManagerTest, TestUntypedEmitReceive) {
-  auto em = EventManager::make();
+TEST_CASE("TestUntypedEmitReceive") {
+  EventManager em;
   ExplosionSystem explosion_system;
-  em->subscribe<Explosion>(explosion_system);
-  ASSERT_EQ(0, explosion_system.damage_received);
+  em.subscribe<Explosion>(explosion_system);
+  REQUIRE(0 == explosion_system.damage_received);
   Explosion explosion(10);
-  em->emit(explosion);
-  ASSERT_EQ(10, explosion_system.damage_received);
+  em.emit(explosion);
+  REQUIRE(10 == explosion_system.damage_received);
 }
 
 
-TEST(EventManagerTest, TestReceiverExpired) {
-  auto em = EventManager::make();
+TEST_CASE("TestReceiverExpired") {
+  EventManager em;
   {
     ExplosionSystem explosion_system;
-    em->subscribe<Explosion>(explosion_system);
-    em->emit<Explosion>(10);
-    ASSERT_EQ(10, explosion_system.damage_received);
-    ASSERT_EQ(1, explosion_system.connected_signals());
-    ASSERT_EQ(1, em->connected_receivers());
+    em.subscribe<Explosion>(explosion_system);
+    em.emit<Explosion>(10);
+    REQUIRE(10 == explosion_system.damage_received);
+    REQUIRE(1 == explosion_system.connected_signals());
+    REQUIRE(1 == em.connected_receivers());
   }
-  ASSERT_EQ(0, em->connected_receivers());
+  REQUIRE(0 == em.connected_receivers());
 }
 
 
-TEST(EventManagerTest, TestSenderExpired) {
+TEST_CASE("TestSenderExpired") {
   ExplosionSystem explosion_system;
   {
-    auto em = EventManager::make();
-    em->subscribe<Explosion>(explosion_system);
-    em->emit<Explosion>(10);
-    ASSERT_EQ(10, explosion_system.damage_received);
-    ASSERT_EQ(1, explosion_system.connected_signals());
-    ASSERT_EQ(1, em->connected_receivers());
+    EventManager em;
+    em.subscribe<Explosion>(explosion_system);
+    em.emit<Explosion>(10);
+    REQUIRE(10 == explosion_system.damage_received);
+    REQUIRE(1 == explosion_system.connected_signals());
+    REQUIRE(1 == em.connected_receivers());
   }
-  ASSERT_EQ(0, explosion_system.connected_signals());
+  REQUIRE(0 == explosion_system.connected_signals());
 }

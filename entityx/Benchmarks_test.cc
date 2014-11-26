@@ -1,11 +1,15 @@
+#define CATCH_CONFIG_MAIN
+
 #include <iostream>
 #include <vector>
-#include "gtest/gtest.h"
+#include "entityx/3rdparty/catch.hpp"
 #include "entityx/help/Timer.h"
 #include "entityx/Entity.h"
 
 using namespace std;
 using namespace entityx;
+
+using std::uint64_t;
 
 
 struct AutoTimer {
@@ -17,32 +21,47 @@ private:
   entityx::help::Timer timer_;
 };
 
-class BenchmarksTest : public ::testing::Test {
-protected:
-  BenchmarksTest() : ev(EventManager::make()), em(EntityManager::make(ev)) {}
+struct Listener : public Receiver<Listener> {
+  void receive(const EntityCreatedEvent &event) { ++created; }
+  void receive(const EntityDestroyedEvent &event) { ++destroyed; }
 
-  ptr<EventManager> ev;
-  ptr<EntityManager> em;
+  int created = 0;
+  int destroyed = 0;
+};
+
+struct Position : public Component<Position> {
 };
 
 
-TEST_F(BenchmarksTest, TestCreateEntities) {
+struct Direction : public Component<Direction> {
+};
+
+
+struct BenchmarkFixture {
+  BenchmarkFixture() : em(ev) {}
+
+  EventManager ev;
+  EntityManager em;
+};
+
+
+TEST_CASE_METHOD(BenchmarkFixture, "TestCreateEntities") {
   AutoTimer t;
 
   uint64_t count = 10000000L;
   cout << "creating " << count << " entities" << endl;
 
   for (uint64_t i = 0; i < count; i++) {
-    em->create();
+    em.create();
   }
 }
 
 
-TEST_F(BenchmarksTest, TestDestroyEntities) {
+TEST_CASE_METHOD(BenchmarkFixture, "TestDestroyEntities") {
   uint64_t count = 10000000L;
   vector<Entity> entities;
   for (uint64_t i = 0; i < count; i++) {
-    entities.push_back(em->create());
+    entities.push_back(em.create());
   }
 
   AutoTimer t;
@@ -53,64 +72,75 @@ TEST_F(BenchmarksTest, TestDestroyEntities) {
   }
 }
 
-struct Listener : public Receiver<Listener> {
-  void receive(const EntityCreatedEvent &event) {}
-  void receive(const EntityDestroyedEvent &event) {}
-};
-
-TEST_F(BenchmarksTest, TestCreateEntitiesWithListener) {
+TEST_CASE_METHOD(BenchmarkFixture, "TestCreateEntitiesWithListener") {
   Listener listen;
-  ev->subscribe<EntityCreatedEvent>(listen);
+  ev.subscribe<EntityCreatedEvent>(listen);
 
-  uint64_t count = 10000000L;
+  int count = 10000000L;
 
   AutoTimer t;
   cout << "creating " << count << " entities while notifying a single EntityCreatedEvent listener" << endl;
 
   vector<Entity> entities;
-  for (uint64_t i = 0; i < count; i++) {
-    entities.push_back(em->create());
+  for (int i = 0; i < count; i++) {
+    entities.push_back(em.create());
   }
+
+  REQUIRE(entities.size() == count);
+  REQUIRE(listen.created == count);
 }
 
-TEST_F(BenchmarksTest, TestDestroyEntitiesWithListener) {
-  Listener listen;
-  ev->subscribe<EntityDestroyedEvent>(listen);
-
-  uint64_t count = 10000000L;
+TEST_CASE_METHOD(BenchmarkFixture, "TestDestroyEntitiesWithListener") {
+  int count = 10000000;
   vector<Entity> entities;
-  for (uint64_t i = 0; i < count; i++) {
-    entities.push_back(em->create());
+  for (int i = 0; i < count; i++) {
+    entities.push_back(em.create());
   }
 
+  Listener listen;
+  ev.subscribe<EntityDestroyedEvent>(listen);
+
   AutoTimer t;
-  cout << "destroying " << count << " entities" << endl;
+  cout << "destroying " << count << " entities while notifying a single EntityDestroyedEvent listener" << endl;
 
   for (auto &e : entities) {
     e.destroy();
   }
+
+  REQUIRE(entities.size() == count);
+  REQUIRE(listen.destroyed == count);
 }
 
-struct Position : public Component<Position> {
-};
-
-TEST_F(BenchmarksTest, TestEntityIteration) {
-  uint64_t count = 10000000L;
-  vector<Entity> entities;
-  for (uint64_t i = 0; i < count; i++) {
-    auto e = em->create();
+TEST_CASE_METHOD(BenchmarkFixture, "TestEntityIteration") {
+  int count = 10000000;
+  for (int i = 0; i < count; i++) {
+    auto e = em.create();
     e.assign<Position>();
-    entities.push_back(e);
   }
 
   AutoTimer t;
-  cout << "iterating over " << count << " entities with a component 10 times" << endl;
+  cout << "iterating over " << count << " entities, unpacking one component" << endl;
 
-  for (int i = 0; i < 10; ++i) {
-    ptr<Position> position;
-    for (auto e : em->entities_with_components<Position>(position)) {
-      position.get();
-    }
+  ComponentHandle<Position> position;
+  for (auto e : em.entities_with_components(position)) {
+    (void)e;
   }
 }
 
+TEST_CASE_METHOD(BenchmarkFixture, "TestEntityIterationUnpackTwo") {
+  int count = 10000000;
+  for (int i = 0; i < count; i++) {
+    auto e = em.create();
+    e.assign<Position>();
+    e.assign<Direction>();
+  }
+
+  AutoTimer t;
+  cout << "iterating over " << count << " entities, unpacking two components" << endl;
+
+  ComponentHandle<Position> position;
+  ComponentHandle<Direction> direction;
+  for (auto e : em.entities_with_components(position, direction)) {
+    (void)e;
+  }
+}
